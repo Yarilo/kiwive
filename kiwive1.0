@@ -1,0 +1,298 @@
+#!/bin/bash
+# KiwiVe- A Kiwi based script for managing archives petitions in a simple way - v 0.1
+# @autor Yarilo D. Villanueva Hernández
+
+
+
+	
+	#Esta función ejecutará el comando pasado por argumento y si report
+	#está activado, guardará la salida que se muestre por pantalla en un fichero. 
+	#De lo contrario, tan sólo ejecutará el argumento.
+	#Parámetros: $1, comando a ejecutar
+function log { 
+		
+	if [ $report == true ]
+	then	
+		eval $1 | tee -a $file_log #tee es el encargado de imprimir por pantalla y en fichero
+	else 
+		eval $1
+	fi
+		
+}
+
+	#Función encargada de verificar si da alguna situación de error. Si encuentra un error, devuelve el código de error,
+	#si no, devuelve 0
+	#Parámateros : $1, tipo de orden; 
+	#	       $2, nombre archivo. Relativo a la carpeta del usuario o a la pública en función de la orden
+function check_errors {
+	
+	if [ "$1" = "insertar" ]
+	then
+		#1.Posibles situaciones de error de insertar	
+		
+		#1.1. Que el fichero  exista ya en la carpeta pública
+		if [ -e /home/public_folder/$2 ] 
+		then	
+			log "echo \"Error 11: el fichero $2 que quieres insertar ya existe en la carpeta pública\" "
+			return 11
+		fi
+		
+		#1.2. Que el fichero no exista en la carpeta del usuario 
+		if  [ ! -e /home/$user_name/$2 ]
+		then
+			log "echo \"Error 12: el fichero $2 que quieres insertar no existe \" "
+			return 12
+		fi
+		
+		#1.3 Que no seas el dueño del fichero que intentas insertar
+		file_owner=`stat -c %U /home/$user_name/$2` 
+		if [  "$file_owner" != "$user_name" ]
+		then
+			log "echo \"Error 13: No eres el dueño del fichero $2 \" " 
+			return 13 
+		fi
+			 
+		#1.4. Que no tengas permisos de lectura sobre el fichero (para poder copiarlo)
+		file_permissions=`stat -c %a /home/$user_name/$2`  	
+		if [ $file_permissions -lt 400 ]
+		then	
+			log "echo \"Error 14: El usuario ' $user_name ' no tiene permisos de lectura sobre el fichero: $2 \" "
+			return 14
+		fi
+	
+		return 0 #No ha habido ningún error
+					
+	else
+		if [ "$1" = "borrar" ]
+		then 
+			#2. Posibles situaciones de error de borrar
+			
+			#2.1. Que el fichero no exista en la carpeta pública
+			if  [ ! -e /home/public_folder/$2 ]
+			then
+				log "echo \"Error 21 : El fichero: $2 que quieres borrar no existe\" "
+				return 21
+			fi
+				
+			#2.2 Que el usuario no sea el dueño del fichero
+			file_owner=`stat -c %U /home/public_folder/$2` 
+			if [ "$file_owner" != "$user_name" ]
+			then
+				log "echo \"Error 22: No eres el dueño del fichero $2 que quieres borrar \" "
+				return 22
+			fi
+  
+			#2.3 Que no tenga permisos de escritura sobre el fichero que quieras borrar
+			file_permissions=`stat -c %a /home/public_folder/$2` 	
+			if [[ $file_permissions -lt 200 ||  $file_permissions -lt 600 ]]
+			then
+				log "echo \"Error 23 : No tienes permisos de escritura sobre el fichero: $2 , no puedes borrarlo \" "
+				return 23
+			fi
+				
+		#3. Para órdenes no reconocidas, ignoramos aquellas que sean "null" y  que estén vacías
+		else
+			log  "echo -e \"Error 30: Orden '$1' no reconocida \n\" "
+			return 30   
+		fi
+	fi
+return 0 #No ha habido ningún error
+} 
+	
+#Función encargada de todo lo relacionado con la inserción/copia de un archivo a la carpeta pública.
+#Funcionamiento:
+#1.Insertamos el fichero en la carpeta pública
+#2.Le damos permisos de escritura.
+#3.Forzamos que el dueño del archivo sea el correcto.
+#2 y 3 son necesarios ya que el que ejecuta los archivos es el administrador, no el usuario que crea el archivo de peticiones
+#Parámetros: (ninguno)
+function copyToFolder { 	
+	
+	message_verbose_cp="cp $source $target"
+	message_verbose_chmod="chmod 644 $target"
+	message_verbose_chown="chown $user_name $target"
+		
+	#1.Insertamos el fichero en la carpeta pública
+	#La función "log" ejecuta el parámetro pasado y si report == true, añade al fichero su salida (tras mostrarla por pantalla).
+	log "echo -e \"Insertando el fichero ${list[1]} en la carpeta pública\" "
+	$verbose && log echo $message_verbose_cp 			      #Comprobamos si verbose está activado para mostrar mensajes adicionales
+	$verbose && log "cp -v $source $target" || log "cp $source $target" #Estructura idéntica a: if [verbose] then verbose_action else normal_action
+	log "echo -e \" \n \" "
+			
+	#2. Le damos permisos de escritura
+	log "echo \"Cambiando los permisos de ${list[1]} y la autoría\" "
+	$verbose && log "echo $message_verbose_chmod" #Los ponemos entre comillas para que sean un sólo arg. 		
+	$verbose && log "chmod -v 644 $target"  || log "chmod 644 $target"
+	#3. Forzamos que el dueño del archivo sea el correcto
+	$verbose && log echo $message_verbose_chown		
+	$verbose && log "chown -v $user_name $target" || log "chown $user_name $target "
+	log "echo -e \" \n \" "
+			
+	#Cálculo de los archivos/bytes agregados	
+	let inserted_bytes+=$file_size 
+	let inserted_files+=1		
+}
+
+#Función encargada de borrar un archivo de la carpeta pública.
+#Parámetros: (ninguno)
+function eraseFromFolder {
+			
+	#Borramos el archivo de la carpeta pública
+	message_verbose_rm="rm -rf $target"
+	log "echo \"Borrando el archivo ${list[1]} de la carpeta pública \" " #La función log ejecuta el parámetro pasado y añade la salida al fichero de log, si report está activado.
+	$verbose && log "echo $message_verbose_rm" #Comprobamos si verbose está activado para mostrar mensajes adicionales
+	$verbose && log "rm -rfv $target"  || log "rm -rf $target"
+	log "echo -e  \"\n \" "	
+	
+	#Cálculo de los archivos/bytes borrados
+	let erased_bytes+=$file_size 
+	let erased_files+=1
+	
+}
+	
+#Llamada a Getopt para tratar las opciones
+ARGS=`getopt -o "vshr:" -l  "verbose,summary,help,report:" -n "getopt.sh" -- "$@"`
+
+#Si la la llamada getopt no es correcta (por ejemplo porque las opciones especificadas no son correctas)
+#O si la función es llamada sin opciones ni parámetros
+if [[ $? -ne 0 || $# -eq 0 ]];
+then
+  echo -e "Uso: kiwive [opciones: -v/-s/-r --verbose/--summary/--report ] archivo_peticiones "
+  exit 1
+fi
+
+#Inicializamos variables de archivos/bytes insertados/borrados
+inserted_files=0
+erased_files=0
+inserted_bytes=0
+erased_bytes=0
+
+#Inicializamos variables de opciones
+verbose=false
+summary=false
+report=false
+
+#El bucle siguiente se encarga de tratar todas las opciones.
+#Hay que tener en cuenta que la orden "shift" desplaza los argumentos, es decir, si tenemos 3 argumentos : $1 $2 $3, y realizamos
+#shift, el argumento $2 pasa a ser el $1, y el $3 el $2 (se "desplazan"). Por ello, este
+#bucle mira constantemente el 1er argumento, hasta que no hay mas. Esto se ha hecho así
+for i 
+do
+  case "$i" in
+	 -v|--verbose)	verbose=true
+			shift;;
+	
+	 -s|--summary) summary=true
+			shift;;
+
+	 -r|--report)	report=true
+	  #shift;;
+	  #Si se indica un archivo para el report, es decir, si hay otro parametro Y no es el último (el nombre del archivo de peticiones)
+	  if [[ -n "$2" &&  2 != $# ]]
+	  then	
+		option="$2"
+		#Comprobamos que no se trate de una de las opciones anteriores (-v, -s,--...)
+		if [ ${option:0:1} != "-" ]
+		then 
+		    file_log=$2
+		fi
+	  fi
+	  shift;;
+	
+	 -h|--help)	
+	  #Mostrar documentación
+	  shift;;
+  esac
+done
+
+
+file_name=${!#} #-> Nos da el último parámetro pasado, en este caso, el nombre del fichero de peticiones
+
+#Abrimos el archivo y leemos la primera línea, que tendrá que ser el nombre de usuario
+exec <$file_name
+read user_name
+
+if [ $report == true ] 
+then
+    if [ ! -n "$file_log" ] #Si no se especifica ningún fichero, creamos uno en /var/log con el formato kiwive_day_month_year_time
+    then 
+	file_log=/var/log/"kiwive_`date +"%d%m%y_%T" `".log 
+    fi
+    echo `date` > $file_log
+    echo -e "$user_name \n" >> $file_log
+fi
+
+##Bucle principal que irá leyendo linea a línea del archivo
+while read line
+do 
+	i=-1	
+	ignore=false
+	#Para cada palabra de cada línea, introducimos dicha palabra en un vector [list]
+	for word in $line 
+	do 
+
+	  #Si encontramos un "#" es un comentario, ignoramos la línea
+	  if [ ${word:0:1} = "#" ] 
+	  then
+		break
+	  else
+		let i=i+1
+		list[i]=$word
+	  fi
+	done
+	
+	#Si es null lo que hay en lista,o lista no existe, entonces se trata de un comentario, ignoramos esta iteración
+	if [[ "${list}" == null || ! -n "${list}"  ]] 
+	then
+	    	continue
+	fi
+	#Ahora tenemos en "list" las instrucciones: list[0] es la orden y list[1] el archivo.
+	
+	#El fichero a añadir tiene que ser relativo a la carpeta del usuario (según Enunciado)-> Source, sólo usado en cp
+	#El fichero a borrar tiene que ser relativo a la carpeta pública (según Enunciado)->Target
+	source=/home/$user_name/${list[1]} 
+	target=/home/public_folder/${list[1]} 
+	
+	#Llamamos primero a la función encargada de comprobar si hay algún error
+	check_errors ${list[0]} ${list[1]}	
+	state=$?
+	
+	#Si no hay errores, comenzamos el tratamiento de las órdenes
+	if [ $state = 0 ] 
+	then
+	#Calculamos el tamaño en bytes del fichero 
+	file_size=`stat -c %s $source`
+	
+	if [ "${list[0]}" == "insertar" ] 
+		then	    
+		    copyToFolder
+		else
+		    if [ "${list[0]}" = "borrar" ]
+		    then
+				eraseFromFolder
+		    fi
+		fi
+	else #Si estamos aquí quiere decir que hubo algún error con la línea en cuestión (check_errors no devolvió 0).
+	    if [ $state != 30 ] # Código 30= Orden incorrecta, este caso se trata directamente en check_errors.
+	    then
+			log "echo -e \"Surgió algún error con el fichero: ${list[1]} \n \" "
+	    fi
+	fi
+
+	#Reinicializamos las siguientes variables para evitar errores
+	list[0]=null 
+	list[1]=null
+	file_size=0;
+done 
+
+#Finalmente, si summary y verbose están activados, mostramos por pantalla 
+#(y añadimos al fichero de log, si es necesario), el resumen de ficheros/bytes agregados/borrados.
+if [[ $summary == true && $verbose == true ]] 
+then
+    log "echo -e \"Sumario:
+	     Ficheros insertados:  $inserted_files    ( $inserted_bytes bytes )\n
+	     Ficheros borrados:    $erased_files	( $erased_bytes bytes ) \n \" "
+fi	
+
+		
+exec <&- #Cerramos el archivo con las peticiones
