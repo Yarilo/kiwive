@@ -5,10 +5,10 @@
 
 
 	
-	#Esta función ejecutará el comando pasado por argumento y si report
-	#está activado, guardará la salida que se muestre por pantalla en un fichero. 
-	#De lo contrario, tan sólo ejecutará el argumento.
-	#Parámetros: $1, comando a ejecutar
+#Esta función ejecutará el comando pasado por argumento y si report
+#está activado, guardará la salida que se muestre por pantalla en un fichero. 
+#De lo contrario, tan sólo ejecutará el argumento.
+#Parámetros: $1, comando a ejecutar
 function log { 
 		
 	if [ $report == true ]
@@ -20,10 +20,10 @@ function log {
 		
 }
 
-	#Función encargada de verificar si da alguna situación de error. Si encuentra un error, devuelve el código de error,
-	#si no, devuelve 0
-	#Parámateros : $1, tipo de orden; 
-	#	       $2, nombre archivo. Relativo a la carpeta del usuario o a la pública en función de la orden
+#Función encargada de verificar si da alguna situación de error. Si encuentra un error, devuelve el código de error,
+#si no, devuelve 0
+#Parámateros : $1, tipo de orden; 
+#	       $2, nombre archivo. Relativo a la carpeta del usuario o a la pública en función de la orden
 function check_errors {
 	
 	if [ "$1" = "insertar" ]
@@ -157,9 +157,10 @@ ARGS=`getopt -o "vshr:" -l  "verbose,summary,help,report:" -n "getopt.sh" -- "$@
 #O si la función es llamada sin opciones ni parámetros
 if [[ $? -ne 0 || $# -eq 0 ]];
 then
-  echo -e "Uso: kiwive [opciones: -v/-s/-r --verbose/--summary/--report ] archivo_peticiones "
+  echo -e "Uso: kiwive [opciones: -v/-s/-r --verbose/--summary/--report ] archivo_peticiones " 
   exit 1
 fi
+#Nótese que aunque no se dice explícitamente, el uso de "summmary" sin verbose, no produce ningún resultado
 
 #Inicializamos variables de archivos/bytes insertados/borrados
 inserted_files=0
@@ -265,6 +266,7 @@ do
 	
 	if [ "${list[0]}" == "insertar" ] 
 		then	    
+		    target=/home/public_folder/ #Para poder copiar en subcarpetas
 		    copyToFolder
 		else
 		    if [ "${list[0]}" = "borrar" ]
